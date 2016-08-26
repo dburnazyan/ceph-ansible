@@ -271,9 +271,21 @@
     register: ceph_data_partlabels
 
   - name: see if ceph-disk-created journal partitions are present
-    shell: "ls /dev/disk/by-partlabel | grep -q 'ceph\\\\x20journal'"
+    shell: "ls /dev/disk/by-partlabel | grep -q "ceph.*.journal"
     failed_when: false
     register: ceph_journal_partlabels
+
+  - name: get ceph journal partitions
+    shell: "ls /dev/disk/by-partlabel | grep "ceph.*.journal"
+    when: ceph_journal_partlabels.rc == 0
+    failed_when: false
+    register: ceph_journal_partition_to_erase
+
+  - name: get the real device path
+    command: readlink "{{ item }}"
+    with_items: "{{ceph_journal_partition_to_erase.stdout_lines}}"
+    when: ceph_journal_partlabels.rc == 0
+    register: ceph_journal_partition_to_erase_path
 
   - name: get osd data mount points
     shell: "(grep /var/lib/ceph/osd /proc/mounts || echo -n) | awk '{ print $2 }'"
@@ -333,8 +345,8 @@
      zap_block_devs
 
   - name: zap journal devices
-    shell: ceph-disk zap "{{ item }}"
-    with_items: "{{ raw_journal_devices|default([])|unique }}"
+    command: sgdisk --zap "/dev/disk/by-partlabel/{{ item }}"
+    with_items: "{{ceph_journal_partition_to_erase_path.stdout_lines}}"
     when:
       osd_group_name in group_names and
       ceph_disk_present.rc == 0 and
